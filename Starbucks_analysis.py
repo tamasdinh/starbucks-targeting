@@ -7,8 +7,6 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
-from collections import defaultdict
-import time
 import os
 os.chdir('/Users/tamasdinh/Dropbox/Data-Science_suli/0_NOTES/Case_studies/Starbucks_targeting')
 
@@ -20,8 +18,7 @@ profile = pd.read_json('./Assets/profile.json', orient = 'records', lines = True
 transcript = pd.read_json('./Assets/transcript.json', orient = 'records', lines = True)
 
 #%% [markdown]
-### Initial data transformations
-
+### Data transformations
 #%%
 def portfolio_transform(df = portfolio):
     channels = set()
@@ -34,11 +31,7 @@ def portfolio_transform(df = portfolio):
     df = pd.concat([df.drop(['offer_type', 'channels'], axis = 1),                                                                  pd.get_dummies(df.offer_type, prefix = 'offer')], axis = 1)
     return df
 
-portfolio_clean = portfolio_transform()
 
-#%%
-
-#%%
 def clean_profile(df = profile):
     df['age'] = df['age'].apply(lambda x: np.nan if x == 118 else x).astype('Int64')
     df['became_member_on'] = df['became_member_on'].apply(lambda x: datetime.strptime(str(x), '%Y%m%d').date())
@@ -47,73 +40,40 @@ def clean_profile(df = profile):
     df = pd.concat([df.drop('gender', axis = 1), pd.get_dummies(df['gender'], prefix = 'gender', dummy_na = True)], axis = 1)
     return df
 
+
+def transcript_clean(df = transcript):
+    df['offer_id'] = df['value'].apply(lambda x: list(x.values())[0])
+    del df['value']
+    return df
+
+
+def transaction_table(df):
+    transactions = df[df['event'] == 'transaction'].sort_values(by = ['person', 'time'], ascending = True).drop('event', axis = 1)
+    transactions.columns = ['person', 'time', 'transaction_value']
+    transactions['transaction_value'] = transactions['transaction_value'].astype('float64')
+    return transactions
+
+
+def main_table(df):
+    main = df[df['event'] != 'transaction'].groupby(['person', 'offer_id', 'event']).max().unstack().reset_index()
+    main.columns = ['person', 'offer_id', 'offer_completed', 'offer_received', 'offer_viewed']
+
+    main = main.merge(profile_clean, how = 'left', left_on = 'person', right_on = 'id').merge(portfolio_clean, how = 'left', left_on = 'offer_id', right_on = 'id').drop(['id_x', 'id_y'], axis = 1)
+
+    catalog = main[['person', 'offer_id']]
+
+    main.drop(['person', 'offer_id', 'became_member_on'], axis = 1, inplace = True)
+
+    return main, catalog
+
+#%%
+portfolio_clean = portfolio_transform()
 profile_clean = clean_profile()
+transcript_cl = transcript_clean()
+transactions = transaction_table(transcript_cl)
+main, catalog = main_table(transcript_cl)
 
 #%%
-transcript['offer_id'] = transcript['value'].apply(lambda x: list(x.values())[0])
-del transcript['value']
-
-#%%
-def person_offers(person, df = transcript):
-    
-    offer_dict = {'person': [], 'offer_id': [], 'time_received': [], 'viewed': [],
-                    'time_viewed': [], 'completed': [], 'time_completed': []}
-    
-    for offer_id in portfolio_clean.id.values:
-        temp = df[df['person'] == person]
-        temp = temp[temp['offer_id'] == offer_id]
-        if temp.shape[0] > 0:
-            offer_dict['person'].append(person)
-            offer_dict['offer_id'].append(offer_id)
-            offer_dict['time_received'].append(temp['time'][temp['event'] == 'offer received'].values[0])
-            
-            offer_dict['viewed'].append(1 if 'offer viewed' in temp['event'].values else 0)
-            if offer_dict['viewed'][-1]:
-                offer_dict['time_viewed'].append(temp['time'][temp['event'] == 'offer viewed'].values[0])
-            else:
-                offer_dict['time_viewed'].append(None)
-            
-            offer_dict['completed'].append(1 if 'offer completed' in temp['event'].values else 0)
-            if offer_dict['completed'][-1]:
-                offer_dict['time_completed'].append(temp['time'][temp['event'] == 'offer completed'].values[0])
-            else:
-                offer_dict['time_completed'].append(None)
-        else:
-            continue
-
-    return offer_dict
-
-cntr = 0
-for prsn in set(profile_clean.id):
-    tmp = person_offers(prsn)
-    if not cntr:
-        person_offer_df = tmp
-    else:
-        for ky in person_offer_df.keys():
-            person_offer_df[ky].append(tmp[ky])
-    cntr +=1
-
-#%%
-start = time.time()
-pd.DataFrame(person_offers(person))
-elapsed = time.time() - start
-print(f'Elapsed: {time.time() - start} seconds')
-
-#%%
-elapsed * profile.shape[0] / 3600
-
-#%%
-transactions = transcript[transcript['event'] == 'transaction'].sort_values(by = ['person', 'time'], ascending = True).drop('event', axis = 1)
-transactions
-
-#%%
-promotions = transcript[transcript['event'] != 'transaction'].groupby(['person', 'offer_id', 'event']).max().unstack().reset_index()
-promotions
-
-#%%
-promotions.iloc[:100].merge(profile_clean, how = 'left', left_on = 'person', right_on = 'id').merge(portfolio_clean, how = 'left', left_on = 'offer_id', right_on = 'id')
-
-#%%
-portfolio_clean
+main.head(10)
 
 #%%
