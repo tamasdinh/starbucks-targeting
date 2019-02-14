@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 from collections import defaultdict
+import time
 import os
 os.chdir('/Users/tamasdinh/Dropbox/Data-Science_suli/0_NOTES/Case_studies/Starbucks_targeting')
 
@@ -53,35 +54,66 @@ transcript['offer_id'] = transcript['value'].apply(lambda x: list(x.values())[0]
 del transcript['value']
 
 #%%
-person = '78afa995795e4d85b5d9ceeca43f5fef'
-offer_id = '9b98b8c7a33c4b65b9aebfe6a799e6d9'
+def person_offers(person, df = transcript):
+    
+    offer_dict = {'person': [], 'offer_id': [], 'time_received': [], 'viewed': [],
+                    'time_viewed': [], 'completed': [], 'time_completed': []}
+    
+    for offer_id in portfolio_clean.id.values:
+        temp = df[df['person'] == person]
+        temp = temp[temp['offer_id'] == offer_id]
+        if temp.shape[0] > 0:
+            offer_dict['person'].append(person)
+            offer_dict['offer_id'].append(offer_id)
+            offer_dict['time_received'].append(temp['time'][temp['event'] == 'offer received'].values[0])
+            
+            offer_dict['viewed'].append(1 if 'offer viewed' in temp['event'].values else 0)
+            if offer_dict['viewed'][-1]:
+                offer_dict['time_viewed'].append(temp['time'][temp['event'] == 'offer viewed'].values[0])
+            else:
+                offer_dict['time_viewed'].append(None)
+            
+            offer_dict['completed'].append(1 if 'offer completed' in temp['event'].values else 0)
+            if offer_dict['completed'][-1]:
+                offer_dict['time_completed'].append(temp['time'][temp['event'] == 'offer completed'].values[0])
+            else:
+                offer_dict['time_completed'].append(None)
+        else:
+            continue
 
-def person_offer(person, offer_id, df = transcript):
-    
-    temp = df[df['person'] == person][df['offer_id'] == offer_id]
-    
-    offer_dict = defaultdict(None)
-    
-    if offer_id in temp['offer_id'].values:
-        offer_dict = {'person': person, 'offer_id': offer_id}
-    
-        offer_dict['time_received'] = temp['time'][temp['event'] == 'offer received'][0]
-        
-        offer_dict['viewed'] = 1 if 'offer viewed' in temp['event'].values else 0
-        if offer_dict['viewed'] == 1:
-            offer_dict['time_viewed'] = temp['time'][temp['event'] == 'offer viewed'].values[0]
-        
-        offer_dict['completed'] = 1 if 'offer completed' in temp['event'].values else 0
-        if offer_dict['completed'] == 1:
-            offer_dict['time_completed'] = temp['time'][temp['event'] == 'offer completed'].values[0]
-    
-    return pd.DataFrame(offer_dict, index = [0])
+    return offer_dict
 
-for offer in portfolio.id.values:
-    print(person_offer(person, offer))
-    print('')
+cntr = 0
+for prsn in set(profile_clean.id):
+    tmp = person_offers(prsn)
+    if not cntr:
+        person_offer_df = tmp
+    else:
+        for ky in person_offer_df.keys():
+            person_offer_df[ky].append(tmp[ky])
+    cntr +=1
 
 #%%
-'9b98b8c7a33c4b65b9aebfe6a799e6d9' in hello['offer_id'].values
+start = time.time()
+pd.DataFrame(person_offers(person))
+elapsed = time.time() - start
+print(f'Elapsed: {time.time() - start} seconds')
+
+#%%
+elapsed * profile.shape[0] / 3600
+
+#%%
+transactions = transcript[transcript['event'] == 'transaction'].sort_values(by = ['person', 'time'], ascending = True).drop('event', axis = 1)
+transactions
+
+#%%
+promotions = transcript[transcript['event'] != 'transaction'].groupby(['person', 'offer_id', 'event']).max().unstack().reset_index()
+promotions
+
+#%%
+promotions.iloc[:100].merge(profile_clean, how = 'left', left_on = 'person', right_on = 'id').merge(portfolio_clean, how = 'left', left_on = 'offer_id', right_on = 'id')
+
+#%%
+portfolio_clean
 
 #%%
