@@ -14,53 +14,55 @@ pd.set_option('display.max_columns', None)
 #%% [markdown]
 ### Reading in datasets
 #%%
-portfolio = pd.read_json('./Assets/portfolio.json', orient = 'records', lines = True)
-profile = pd.read_json('./Assets/profile.json', orient = 'records', lines = True)
-transcript = pd.read_json('./Assets/transcript.json', orient = 'records', lines = True)
+def load_raw_data():
+    portfolio = pd.read_json('./Assets/portfolio.json', orient = 'records', lines = True)
+    profile = pd.read_json('./Assets/profile.json', orient = 'records', lines = True)
+    transcript = pd.read_json('./Assets/transcript.json', orient = 'records', lines = True)
+    return portfolio, profile, transcript
 
 #%% [markdown]
 ### Data transformations
 #%%
-def portfolio_transform(df = portfolio):
+def portfolio_transform(df_portfolio):
     '''
     Creates dummy variables from channel types listed in 'channel' column
     IN: 'channels' column in portfolio df (contains channels used in list format)
     OUT: portfolio df with separate dummy columns for each channel mentioned
     '''
     channels = set()
-    for row in df['channels']:
+    for row in df_portfolio['channels']:
         for item in row:
             channels.add(item)
     for channel in channels:
-        df[channel] = df['channels'].apply(lambda x: 1 if channel in x else 0)
+        df_portfolio[channel] = df_portfolio['channels'].apply(lambda x: 1 if channel in x else 0)
 
-    df = pd.concat([df.drop(['offer_type', 'channels'], axis = 1), pd.get_dummies(df.offer_type, prefix = 'offer')], axis = 1)
-    return df
+    df_portfolio = pd.concat([df_portfolio.drop(['offer_type', 'channels'], axis = 1), pd.get_dummies(df_portfolio.offer_type, prefix = 'offer')], axis = 1)
+    return df_portfolio
 
 
-def clean_profile(df = profile):
+def clean_profile(df_profile):
     '''
     Cleans user profile dataset for ages and dates
     IN: user profile df (age, became_member_on columns)
     OUT: transformed df with irrealistic ages as NaN and dates as datetime objects
     '''
-    df['age'] = df['age'].apply(lambda x: np.nan if x == 118 else x).astype('Int64')
-    df['became_member_on'] = df['became_member_on'].apply(lambda x: datetime.strptime(str(x), '%Y%m%d').date())
+    df_profile['age'] = df_profile['age'].apply(lambda x: np.nan if x == 118 else x).astype('Int64')
+    df_profile['became_member_on'] = df_profile['became_member_on'].apply(lambda x: datetime.strptime(str(x), '%Y%m%d').date())
     analysis_date = datetime.strptime('20180731', '%Y%m%d').date()
-    df['len_membership'] = df['became_member_on'].apply(lambda x: (analysis_date - x).days)
-    df = pd.concat([df.drop('gender', axis = 1), pd.get_dummies(df['gender'], prefix = 'gender', dummy_na = True)], axis = 1)
-    return df
+    df_profile['len_membership'] = df_profile['became_member_on'].apply(lambda x: (analysis_date - x).days)
+    df_profile = pd.concat([df_profile.drop('gender', axis = 1), pd.get_dummies(df_profile['gender'], prefix = 'gender', dummy_na = True)], axis = 1)
+    return df_profile
 
 
-def transcript_clean(df = transcript):
+def transcript_clean(df_transcript):
     '''
     Cleans 'value' columns so that it only contains the offer id in string format
     IN: transcript df ('value' column with offer id in dictionary format)
     OUT: transformed transcript df with 'value' column cleaned
     '''
-    df['offer_id'] = df['value'].apply(lambda x: list(x.values())[0])
-    del df['value']
-    return df
+    df_transcript['offer_id'] = df_transcript['value'].apply(lambda x: list(x.values())[0])
+    del df_transcript['value']
+    return df_transcript
 
 
 def transaction_table(df):
@@ -203,23 +205,30 @@ def target_vars(main_df):
 
     main_df['viewed'] = main_df.apply(lambda x: viewed(x), axis = 1)
     main_df['completed'] = main_df['offer completed'].apply(lambda x: 1 if x > 0 else 0)
-    main_df = main_df[['offer received', 'offer viewed', 'offer completed', 'viewed', 'completed', 'difficulty', 'duration', 'reward', 'age', 'income', 'len_membership', 'email', 'web', 'mobile', 'social', 'offer_bogo', 'offer_discount', 'offer_informational', 'gender_F', 'gender_M', 'gender_O', 'gender_nan']]
+    main_df = main_df[['person', 'offer_id', 'offer received', 'offer viewed', 'offer completed', 'viewed', 'completed', 'difficulty', 'duration', 'reward', 'age', 'income', 'len_membership', 'email', 'web', 'mobile', 'social', 'offer_bogo', 'offer_discount', 'offer_informational', 'gender_F', 'gender_M', 'gender_O', 'gender_nan']]
 
     main_df['viewed_completed'] = main_df['completed'] * main_df['viewed']
     return main_df
 
 #%%
-portfolio_clean = portfolio_transform()
-profile_clean = clean_profile()
-transcript_cl = transcript_clean()
-transactions = transaction_table(transcript_cl)
-offers_OK, offers_issue = offers_table(transcript_cl, portfolio_clean)
-offers_issue = offers_table_clean(offers_issue)
+def main():
+    portfolio, profile, transcript = load_raw_data()
+    portfolio_clean = portfolio_transform(portfolio)
+    profile_clean = clean_profile(profile)
+    transcript_cl = transcript_clean(transcript)
+    transactions = transaction_table(transcript_cl)
+    offers_OK, offers_issue = offers_table(transcript_cl, portfolio_clean)
+    offers_issue = offers_table_clean(offers_issue)
 
-main_df = main_table_merge(offers_OK, offers_issue, portfolio_clean, profile_clean)
-main_df = target_vars(main_df)
+    main_df = main_table_merge(offers_OK, offers_issue, portfolio_clean, profile_clean)
+    main_df = target_vars(main_df)
 
-main_df.to_csv('./Assets/Starbucks_clean_analysis_data.csv')
-main_df[['person', 'offer_id']].to_csv('./Assets/Starbucks_clean_ID_data.csv')
+    main_df.to_csv('./Assets/Starbucks_clean_analysis_data.csv')
+    main_df[['person', 'offer_id']].to_csv('./Assets/Starbucks_clean_ID_data.csv')
+    transactions.to_csv('./Assets/Starbucks_clean_transaction_data.csv')
 
 
+if __name__ == '__main__':
+    main()
+
+# TODO: argparse integration (setting up arguments so that datafile folder can be handled as input) 
